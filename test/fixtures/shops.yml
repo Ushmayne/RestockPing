@@ -1,0 +1,29 @@
+# Plaintext here; encrypt_fixtures (config/environments/test.rb) encrypts tokens on load.
+# ERB times are evaluated once when fixtures load, at the start of the test run.
+
+# Installed shop with a fresh (unexpired) offline token.
+regular_shop:
+  shopify_domain: regular-shop.myshopify.com
+  shopify_token: valid-access-token
+  access_scopes: read_products,read_inventory
+  expires_at: <%= 1.hour.from_now.to_fs(:db) %>
+  refresh_token: valid-refresh-token
+  refresh_token_expires_at: <%= 90.days.from_now.to_fs(:db) %>
+
+# Access token has expired, refresh token is still good.
+expired_token_shop:
+  shopify_domain: expired-token-shop.myshopify.com
+  shopify_token: expired-access-token
+  access_scopes: read_products,read_inventory
+  expires_at: <%= 5.minutes.ago.to_fs(:db) %>
+  refresh_token: still-valid-refresh-token
+  refresh_token_expires_at: <%= 30.days.from_now.to_fs(:db) %>
+
+# Both tokens expired: only the merchant opening the app (token exchange) can recover this.
+dead_refresh_shop:
+  shopify_domain: dead-refresh-shop.myshopify.com
+  shopify_token: expired-access-token
+  access_scopes: read_products,read_inventory
+  expires_at: <%= 2.days.ago.to_fs(:db) %>
+  refresh_token: expired-refresh-token
+  refresh_token_expires_at: <%= 1.day.ago.to_fs(:db) %>

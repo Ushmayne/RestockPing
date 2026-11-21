@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title><%= ShopifyApp.configuration.application_name %></title>
+
+    <%# App Bridge reads this meta tag to know which app is loading. It must come first. %>
+    <meta name="shopify-api-key" content="<%= ShopifyApp.configuration.api_key %>" />
+    <%# Must be the first blocking script: no async, defer or type="module", or App Bridge
+        won't start. Served from Shopify's CDN, so it's always the current version.
+        App Bridge also patches window.fetch so same-origin requests carry
+        `Authorization: Bearer <ID token>`, which is how Turbo and fetch calls authenticate. %>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+
+    <%= csrf_meta_tags %>
+    <%= stylesheet_link_tag :app %>
+    <%= javascript_importmap_tags %>
+  </head>
+
+  <body>
+    <main>
+      <%= yield %>
+    </main>
+  </body>
+</html>

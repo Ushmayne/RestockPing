@@ -1,0 +1,10 @@
+# Tells `shopify app dev` how to run our web process. Rails serves both the admin UI and
+# the API, so one process takes both roles. The CLI sets PORT, HOST, SHOPIFY_API_KEY,
+# SHOPIFY_API_SECRET and SCOPES before running this command.
+name = "rails"
+roles = ["frontend", "backend"]
+
+[commands]
+# The CLI runs this without a shell, so "$PORT" would reach Rails as literal text.
+# `rails server` reads ENV["PORT"] itself when no -p flag is given.
+dev = "bin/rails server -b 127.0.0.1"
