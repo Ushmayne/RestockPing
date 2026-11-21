@@ -14,7 +14,7 @@ Built in phases. Each phase ships with tests.
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | Rails app, embedded auth (token exchange), encrypted token storage | Done |
-| 2 | `inventory_levels/update` webhook: HMAC verification, dedup, 0 → >0 restock detection | Planned |
+| 2 | `inventory_levels/update` webhook: HMAC verification, dedup, 0 → >0 restock detection | Done |
 | 3 | Theme app extension (signup form) + app proxy endpoint | Planned |
 | 4 | Sidekiq jobs that send restock emails, with retries | Planned |
 | 5 | Order webhooks to attribute conversions to alerts | Planned |
@@ -50,6 +50,35 @@ request with token exchange:
    `shop.with_shopify_session`. That refreshes the token under a row lock, so two
    concurrent jobs can't both spend the same single-use refresh token.
 
+## How restock detection works
+
+Every subscribed topic is delivered to `POST /api/webhooks` (see `shopify.app.toml`).
+
+1. **Verify.** HMAC-SHA256 over the raw request body with the client secret, compared
+   in constant time against `X-Shopify-Hmac-Sha256`. The previous secret is also
+   accepted during a rotation. A bad signature gets `401` and nothing else runs.
+2. **Deduplicate** on `X-Shopify-Webhook-Id`. Shopify retries failed deliveries 8 times
+   over 4 hours and can send a delivery more than once.
+3. **Re-fetch.** The `inventory_levels/update` payload only carries the new `available`
+   count for one location. Deliveries can be coalesced and sometimes lack
+   `location_id`. So the webhook is treated as "this inventory item changed", and each
+   variant's total `inventoryQuantity` is fetched from the GraphQL Admin API. The call
+   runs outside any DB transaction and refreshes an expired access token first.
+4. **Detect,** in one transaction with the dedup row (`WebhookDelivery.process_once`):
+   - `INSERT … ON CONFLICT DO NOTHING` creates the variant's stock row if it's missing.
+     A first sighting is only a baseline and never counts as a restock.
+   - `SELECT … FOR UPDATE` serialises concurrent webhooks for the same variant, so
+     only one of them can see the old `0`.
+   - A reading observed earlier than the stored one is discarded (stale response).
+   - `previous <= 0 && current > 0` creates a `RestockEvent`. Negative counts mean
+     oversold, which is still out of stock.
+5. **Respond** `200`. Any error returns `500` with nothing recorded (the dedup row
+   rolls back with everything else), so Shopify's retry processes it again.
+
+`app/uninstalled` deletes the shop, its tokens and its data. The mandatory compliance
+topics (`customers/data_request`, `customers/redact`, `shop/redact`) are verified and
+handled the same way.
+
 ## Security notes
 
 - Access and refresh tokens are encrypted at rest (`encrypts :shopify_token, :refresh_token`).
@@ -57,6 +86,8 @@ request with token exchange:
 - A unique index on `shops.shopify_domain` makes concurrent first-install requests safe.
   The loser of the race hits `RecordNotUnique` and is handled, instead of creating a
   duplicate shop.
+- Webhooks are verified before anything is parsed or stored, and the endpoint inherits
+  from `ActionController::API` (no cookies, sessions or CSRF surface).
 - Brakeman and bundler-audit run as part of the Rails toolchain.
 
 ## Local development
@@ -112,6 +143,20 @@ tokens. Current coverage:
 - `test/integration/embedded_auth_test.rb`: first-install token exchange (asserts
   `expiring=1`), returning shop, expired stored token, forged signature, wrong audience,
   expired ID token, shop/token mismatch, and the bounce page for document loads with no token
+- `test/services/shopify_webhook_verifier_test.rb`: valid signature, wrong secret,
+  tampered or re-serialised body, missing header, secret rotation
+- `test/models/variant_stock_test.rb`: baseline, 0 → n, oversold → n, n → m, sell-out,
+  repeated cycles, stale readings
+- `test/models/variant_stock_concurrency_test.rb`: two webhooks racing on one variant
+  produce exactly one restock. Real threads, separate DB connections, and a hook that
+  pauses one transaction between its read and its write.
+- `test/models/webhook_delivery_test.rb`: process-once semantics and rollback on failure
+- `test/controllers/webhooks_controller_test.rb`: end to end. Restock, multi-location
+  totals, duplicates, bad or tampered HMAC, throttled API then a successful retry,
+  token refresh, unknown shop or topic, uninstall and compliance topics
+
+The safeguards in `VariantStock.observe!` were mutation-checked: removing the row
+lock, the stale-read guard, or the `<= 0` rule each makes a test fail.
 
 Linting and security scans:
 
@@ -125,7 +170,13 @@ bin/brakeman
 ```
 app/controllers/authenticated_controller.rb  base class for admin requests (ID token auth)
 app/controllers/home_controller.rb           embedded landing page, GraphQL shop query
+app/controllers/webhooks_controller.rb       single webhook endpoint: verify, dedup, dispatch by topic
+app/services/shopify_webhook_verifier.rb     HMAC-SHA256 check over the raw body
+app/services/webhooks/                       one handler per topic (inventory, uninstall, compliance)
 app/models/shop.rb                           installed shops + encrypted session storage
+app/models/webhook_delivery.rb               processed webhook IDs, process_once
+app/models/variant_stock.rb                  last known stock per variant, restock rule
+app/models/restock_event.rb                  detected restocks (consumed in Phase 4)
 config/initializers/shopify_app.rb           auth strategy, API version, token expiry
 shopify.app.toml                             app config pushed to Shopify (scopes, install flow)
 shopify.web.toml                             how the Shopify CLI starts Rails

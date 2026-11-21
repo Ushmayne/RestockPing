@@ -11,6 +11,11 @@ class Shop < ActiveRecord::Base
   # doesn't leak usable tokens. Non-deterministic encryption: we never query by token.
   encrypts :shopify_token, :refresh_token
 
+  # The foreign keys cascade in the database too (on_delete: :cascade), so a shop
+  # deleted on uninstall takes its data with it even when no callbacks run.
+  has_many :variant_stocks, dependent: :delete_all
+  has_many :restock_events, dependent: :delete_all
+
   def api_version
     ShopifyApp.configuration.api_version
   end

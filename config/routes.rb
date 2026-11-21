@@ -1,5 +1,10 @@
 Rails.application.routes.draw do
   root to: "home#index"
+
+  # Every Shopify webhook topic (shopify.app.toml points here). Not /webhooks,
+  # which the shopify_app engine claims for its own handler.
+  post "api/webhooks", to: "webhooks#receive", as: :shopify_webhooks
+
   mount ShopifyApp::Engine, at: "/"
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 

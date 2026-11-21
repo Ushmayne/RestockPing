@@ -63,3 +63,45 @@ module ShopifyIdTokenHelper
     )
   end
 end
+
+# Builds webhook deliveries the way Shopify sends them: HMAC-SHA256 over the raw
+# body with the client secret, base64-encoded, plus the X-Shopify-* headers.
+module ShopifyWebhookHelper
+  def shopify_hmac(body, secret: ENV.fetch("SHOPIFY_API_SECRET"))
+    Base64.strict_encode64(OpenSSL::HMAC.digest("SHA256", secret, body))
+  end
+
+  def shopify_webhook_headers(body, topic:, shop:, webhook_id: SecureRandom.uuid, hmac: shopify_hmac(body))
+    {
+      "Content-Type" => "application/json",
+      "X-Shopify-Topic" => topic,
+      "X-Shopify-Shop-Domain" => shop,
+      "X-Shopify-Webhook-Id" => webhook_id,
+      "X-Shopify-Event-Id" => SecureRandom.uuid,
+      "X-Shopify-API-Version" => "2026-10",
+      "X-Shopify-Triggered-At" => Time.current.utc.iso8601(6),
+      "X-Shopify-Hmac-Sha256" => hmac
+    }
+  end
+
+  # The Admin API's answer to Webhooks::InventoryLevelsUpdate::QUERY.
+  def stub_inventory_item(shop:, inventory_item_id:, variants:, tracked: true, status: 200, body: nil)
+    item_gid = "gid://shopify/InventoryItem/#{inventory_item_id}"
+    body ||= {
+      data: {
+        inventoryItem: {
+          id: item_gid,
+          tracked: tracked,
+          variants: {
+            nodes: variants.map do |v|
+              { id: v.fetch(:id), inventoryQuantity: v.fetch(:quantity), product: { id: v.fetch(:product_id) } }
+            end
+          }
+        }
+      }
+    }
+    stub_request(:post, "https://#{shop}/admin/api/2026-10/graphql.json")
+      .with { |req| JSON.parse(req.body).dig("variables", "id") == item_gid }
+      .to_return(status: status, headers: { "Content-Type" => "application/json" }, body: body.to_json)
+  end
+end

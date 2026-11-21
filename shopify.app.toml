@@ -10,8 +10,17 @@ embedded = true
 
 [webhooks]
 # Payload version for webhook deliveries. Kept equal to config.api_version in Rails so
-# webhooks and GraphQL responses use the same schema. Subscriptions get added in Phase 2.
+# webhooks and GraphQL responses use the same schema.
 api_version = "2026-10"
+
+# App-specific subscriptions: Shopify subscribes every shop that installs the app,
+# and `shopify app dev` applies them to the dev store. A relative uri resolves
+# against application_url, so it survives tunnel URL changes.
+[[webhooks.subscriptions]]
+topics = [ "inventory_levels/update", "app/uninstalled" ]
+# Mandatory privacy webhooks for App Store apps.
+compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+uri = "/api/webhooks"
 
 [access_scopes]
 # Shopify shows exactly these on the install screen (managed installation).
