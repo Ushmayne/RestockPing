@@ -49,14 +49,11 @@ group :development do
 end
 
 group :test do
-  # Use system testing [https://guides.rubyonrails.org/testing.html#system-testing]
-  gem "capybara"
-  gem "selenium-webdriver"
+  # Blocks real HTTP in tests; every Shopify API call is stubbed explicitly
+  gem "webmock", "~> 3.37"
 end
 
 gem "shopify_app", "~> 23.0"
 # shopify_api 16.4 uses OpenStruct (JSON.parse object_class) without declaring or requiring
 # ostruct, and Ruby 3.4 no longer autoloads it. Bundler.require loads it for the gem.
 gem "ostruct"
-
-gem "webmock", "~> 3.37", group: :test
