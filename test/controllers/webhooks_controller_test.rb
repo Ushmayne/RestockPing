@@ -195,6 +195,22 @@ class WebhooksControllerTest < ActionDispatch::IntegrationTest
     assert Shop.exists?(@shop.id), "customer requests must not delete the shop"
   end
 
+  test "customers/redact deletes that customer's subscriptions by id or email, and nobody else's" do
+    sub = ->(email, customer_id = nil) do
+      @shop.subscriptions.create!(email: email, customer_id: customer_id, variant_gid: "gid://shopify/ProductVariant/#{SecureRandom.hex(3)}",
+                                  product_gid: PRODUCT)
+    end
+    sub.call("ana@example.com")              # guest signup, matched by email
+    sub.call("ana.work@example.com", 555)    # logged-in signup, matched by customer id
+    keep = sub.call("bob@example.com", 777)
+
+    body = { shop_domain: @shop.shopify_domain, customer: { id: 555, email: "ANA@example.com" } }.to_json
+    deliver(body, topic: "customers/redact")
+
+    assert_response :ok
+    assert_equal [ keep.id ], @shop.subscriptions.pluck(:id)
+  end
+
   test "compliance webhook with a bad HMAC gets 401 (required by Shopify's app review)" do
     body = { shop_domain: @shop.shopify_domain }.to_json
 

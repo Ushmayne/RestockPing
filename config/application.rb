@@ -16,6 +16,14 @@ module RestockPing
     # Common ones are `templates`, `generators`, or `middleware`, for example.
     config.autoload_lib(ignore: %w[assets tasks])
 
+    # App proxy requests arrive with X-Forwarded-Host set to the *shop's* domain
+    # (e.g. some-store.myshopify.com), which Rails treats as the request host.
+    # Host authorization (DNS-rebinding protection) would block every one of them
+    # with a 403. Those requests are authenticated by the proxy signature instead
+    # (ProxySubscriptionsController), so skip the host check for /proxy/* only.
+    # Every other route keeps it.
+    config.host_authorization = { exclude: ->(request) { request.path.start_with?("/proxy/") } }
+
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files

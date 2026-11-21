@@ -64,6 +64,38 @@ module ShopifyIdTokenHelper
   end
 end
 
+# Builds app proxy query strings the way Shopify signs them. Checked against
+# Shopify's published examples in ShopifyAppProxyVerifierTest, so this helper
+# isn't simply agreeing with our own implementation.
+module ShopifyAppProxyHelper
+  # customer_id: nil leaves logged_in_customer_id out of the query entirely.
+  def app_proxy_query(shop:, customer_id: "", timestamp: Time.current.to_i,
+                      secret: ENV.fetch("SHOPIFY_API_SECRET"), extra: {})
+    params = {
+      "shop" => shop,
+      "logged_in_customer_id" => customer_id&.to_s,
+      "path_prefix" => "/apps/restockping",
+      "timestamp" => timestamp.to_s
+    }.compact.merge(extra)
+    message = params.map { |key, value| "#{key}=#{Array(value).join(",")}" }.sort.join
+    Rack::Utils.build_query(params.merge("signature" => OpenSSL::HMAC.hexdigest("SHA256", secret, message)))
+  end
+
+  # The Admin API's answer to SubscribeToRestock::QUERY.
+  def stub_product_variant(shop:, variant_id:, quantity:, tracked: true, exists: true,
+                           product_id: 42, inventory_item_id: 4242)
+    gid = "gid://shopify/ProductVariant/#{variant_id}"
+    variant = exists && {
+      id: gid, inventoryQuantity: quantity, product: { id: "gid://shopify/Product/#{product_id}" },
+      inventoryItem: { id: "gid://shopify/InventoryItem/#{inventory_item_id}", tracked: tracked }
+    }
+    stub_request(:post, "https://#{shop}/admin/api/2026-10/graphql.json")
+      .with { |req| JSON.parse(req.body).dig("variables", "id") == gid }
+      .to_return(status: 200, headers: { "Content-Type" => "application/json" },
+                 body: { data: { productVariant: variant || nil } }.to_json)
+  end
+end
+
 # Builds webhook deliveries the way Shopify sends them: HMAC-SHA256 over the raw
 # body with the client secret, base64-encoded, plus the X-Shopify-* headers.
 module ShopifyWebhookHelper

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_22_000003) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_22_000004) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -36,6 +36,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_22_000003) do
     t.string "refresh_token"
     t.datetime "refresh_token_expires_at"
     t.index ["shopify_domain"], name: "index_shops_on_shopify_domain", unique: true
+  end
+
+  create_table "subscriptions", force: :cascade do |t|
+    t.bigint "shop_id", null: false
+    t.string "variant_gid", null: false
+    t.string "product_gid", null: false
+    t.string "email", null: false
+    t.bigint "customer_id"
+    t.string "status", default: "pending", null: false
+    t.datetime "notified_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["shop_id", "customer_id"], name: "index_subscriptions_on_shop_id_and_customer_id"
+    t.index ["shop_id", "variant_gid", "email"], name: "index_subscriptions_on_shop_id_and_variant_gid_and_email", unique: true
+    t.index ["shop_id", "variant_gid", "status"], name: "index_subscriptions_on_shop_id_and_variant_gid_and_status"
   end
 
   create_table "variant_stocks", force: :cascade do |t|
@@ -64,5 +79,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_22_000003) do
   end
 
   add_foreign_key "restock_events", "shops", on_delete: :cascade
+  add_foreign_key "subscriptions", "shops", on_delete: :cascade
   add_foreign_key "variant_stocks", "shops", on_delete: :cascade
 end

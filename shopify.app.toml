@@ -24,11 +24,20 @@ uri = "/api/webhooks"
 
 [access_scopes]
 # Shopify shows exactly these on the install screen (managed installation).
-# read_orders gets added in Phase 5, when we actually need it.
-scopes = "read_products,read_inventory"
+# write_app_proxy is required for [app_proxy]. read_orders gets added in Phase 5,
+# when we actually need it.
+scopes = "read_products,read_inventory,write_app_proxy"
 # false = Shopify handles install and scope grants, and we authenticate with token exchange.
 # true would bring back the old OAuth redirect dance through /auth/callback.
 use_legacy_install_flow = false
+
+[app_proxy]
+# https://<shop>/apps/restockping/<path> is forwarded to <application_url>/proxy/<path>,
+# with signed shop / logged_in_customer_id / timestamp params added. A relative
+# url follows the tunnel URL during `shopify app dev`.
+url = "/proxy"
+prefix = "apps"
+subpath = "restockping"
 
 [auth]
 # Only used by the legacy OAuth flow. Kept because the CLI expects the key to be present.

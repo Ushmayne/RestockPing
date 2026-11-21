@@ -5,6 +5,10 @@ Rails.application.routes.draw do
   # which the shopify_app engine claims for its own handler.
   post "api/webhooks", to: "webhooks#receive", as: :shopify_webhooks
 
+  # Storefront requests through the app proxy ([app_proxy] in shopify.app.toml):
+  # https://<shop>/apps/restockping/* arrives here as /proxy/*.
+  post "proxy/subscriptions", to: "proxy_subscriptions#create", as: :proxy_subscriptions
+
   mount ShopifyApp::Engine, at: "/"
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 

@@ -1,0 +1,75 @@
+/* Inherits the theme's fonts and colours; only sets layout and states. */
+.restockping[hidden] {
+  display: none !important; /* some themes override the [hidden] attribute */
+}
+
+.restockping {
+  margin: 1rem 0;
+}
+
+.restockping__heading {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.restockping__label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.875em;
+}
+
+.restockping__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.restockping__input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+}
+
+.restockping__button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.restockping__button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.restockping__input:focus-visible,
+.restockping__button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.restockping__message {
+  min-height: 1.25em;
+  margin: 0.5rem 0 0;
+  font-size: 0.875em;
+}
+
+.restockping__message--error {
+  color: #b3261e;
+}
+
+/* Off-screen rather than display:none, which some bots detect and skip. */
+.restockping__hp {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

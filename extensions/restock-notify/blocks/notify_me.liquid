@@ -1,0 +1,77 @@
+{%- comment -%}
+  Back-in-stock signup form. The merchant adds it to the product page in the theme
+  editor (Add block > Apps). Liquid renders it for the variant selected at page
+  load, and restockping.js shows or hides it as the shopper switches variants.
+{%- endcomment -%}
+{%- liquid
+  assign rp_product = block.settings.product
+  assign current = rp_product.selected_or_first_available_variant
+-%}
+
+{%- if rp_product != blank -%}
+  <div
+    class="restockping"
+    data-restockping
+    data-endpoint="{{ block.settings.proxy_path | default: '/apps/restockping' }}/subscriptions"
+    data-msg-success="{{ 'restockping.success' | t }}"
+    data-msg-invalid-email="{{ 'restockping.invalid_email' | t }}"
+    data-msg-in-stock="{{ 'restockping.in_stock' | t }}"
+    data-msg-rate-limited="{{ 'restockping.rate_limited' | t }}"
+    data-msg-error="{{ 'restockping.error' | t }}"
+    {% if current.available %}hidden{% endif %}
+  >
+    {%- comment -%} Variant id -> available, so the script can react to variant changes without a request. {%- endcomment -%}
+    <script type="application/json" data-restockping-variants>
+      { {%- for variant in rp_product.variants -%}"{{ variant.id }}":{{ variant.available }}{%- unless forloop.last -%},{%- endunless -%}{%- endfor -%} }
+    </script>
+
+    <form class="restockping__form" data-restockping-form novalidate>
+      <p class="restockping__heading">{{ block.settings.heading | escape }}</p>
+      <input type="hidden" name="variant_id" value="{{ current.id }}">
+
+      <label class="restockping__label" for="restockping-email-{{ block.id }}">{{ 'restockping.email_label' | t }}</label>
+      <div class="restockping__row">
+        <input
+          class="restockping__input"
+          id="restockping-email-{{ block.id }}"
+          type="email"
+          name="email"
+          required
+          autocomplete="email"
+          inputmode="email"
+          value="{{ customer.email | escape }}"
+        >
+        <button class="restockping__button" type="submit">{{ block.settings.button_label | escape }}</button>
+      </div>
+
+      {%- comment -%} Honeypot: hidden from people and screen readers. Bots fill it, and the server drops those submissions. {%- endcomment -%}
+      <div class="restockping__hp" aria-hidden="true">
+        <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+      </div>
+
+      <p class="restockping__message" data-restockping-message role="status" aria-live="polite"></p>
+    </form>
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Back-in-stock alert",
+  "target": "content",
+  "enabled_on": { "templates": ["product"] },
+  "javascript": "restockping.js",
+  "stylesheet": "restockping.css",
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product", "autofill": true },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Sold out. Get an email when it's back." },
+    { "type": "text", "id": "button_label", "label": "Button label", "default": "Notify me" },
+    {
+      "type": "text",
+      "id": "proxy_path",
+      "label": "App proxy path",
+      "default": "/apps/restockping",
+      "info": "Only change this if you changed RestockPing's app proxy URL in Settings > Apps and sales channels."
+    }
+  ]
+}
+{% endschema %}

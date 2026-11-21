@@ -1,0 +1,10 @@
+{
+  "restockping": {
+    "email_label": "Email",
+    "success": "You're on the list. We'll email you when it's back in stock.",
+    "invalid_email": "Please enter a valid email address.",
+    "in_stock": "Good news: this is back in stock. Refresh the page to buy it.",
+    "rate_limited": "Too many attempts. Please wait a minute and try again.",
+    "error": "Something went wrong. Please try again."
+  }
+}

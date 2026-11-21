@@ -15,7 +15,7 @@ Built in phases. Each phase ships with tests.
 |---|-------|--------|
 | 1 | Rails app, embedded auth (token exchange), encrypted token storage | Done |
 | 2 | `inventory_levels/update` webhook: HMAC verification, dedup, 0 → >0 restock detection | Done |
-| 3 | Theme app extension (signup form) + app proxy endpoint | Planned |
+| 3 | Theme app extension (signup form) + app proxy endpoint | Done |
 | 4 | Sidekiq jobs that send restock emails, with retries | Planned |
 | 5 | Order webhooks to attribute conversions to alerts | Planned |
 | 6 | Admin analytics page | Planned |
@@ -79,6 +79,39 @@ Every subscribed topic is delivered to `POST /api/webhooks` (see `shopify.app.to
 topics (`customers/data_request`, `customers/redact`, `shop/redact`) are verified and
 handled the same way.
 
+## How storefront signup works
+
+A theme app extension (`extensions/restock-notify`) adds a **Back-in-stock alert** block
+that merchants place on the product page in the theme editor.
+
+1. **Render.** Liquid outputs a small form plus a JSON map of `variant id → available`.
+   `restockping.js` shows the form only while the selected variant is sold out.
+   Shopify documents no variant-change event for app blocks, so the script follows the
+   add-to-cart form's `id` input and the `?variant=` URL param.
+2. **Submit.** The form POSTs to `/apps/restockping/subscriptions` on the shop's own
+   domain. That's the same origin, so there's no CORS and nothing secret in the browser.
+3. **Proxy.** Shopify forwards it to `/proxy/subscriptions` and adds `shop`,
+   `logged_in_customer_id`, `path_prefix`, `timestamp` and `signature` to the query string.
+4. **Verify** (`ShopifyAppProxyVerifier`). Hex HMAC-SHA256 over the sorted `key=value`
+   query params, joined with no separator, compared in constant time. Timestamps older than
+   5 minutes are rejected (replay). Only the query string is signed, so `shop` and
+   `logged_in_customer_id` are read from `request.query_parameters` and never from
+   `params`, which would fall back to the unsigned body for any key the query lacks.
+   The verifier is pinned to Shopify's published worked examples.
+5. **Abuse controls.** Rate limits per shopper (first `X-Forwarded-For` entry, because
+   `remote_ip` resolves to Shopify's proxy) and per shop (a ceiling that can't be dodged by
+   spoofing IPs). A honeypot field gets a fake success. New and repeat signups get the
+   same response, so the form can't be used to check who's subscribed.
+6. **Subscribe** (`SubscribeToRestock`). The GraphQL Admin API confirms the variant
+   belongs to this shop, tracks inventory, and is sold out. That count becomes the
+   `VariantStock` baseline the restock webhook needs. The subscription is upserted with
+   `create_or_find_by` on a unique index, and re-armed if the shopper was already notified
+   for an earlier restock.
+
+Emails are encrypted with **deterministic** Active Record Encryption, so the unique index
+and `customers/redact` lookups (`WHERE email = ?`) still work. `customers/redact` deletes a
+customer's subscriptions by customer id or email.
+
 ## Security notes
 
 - Access and refresh tokens are encrypted at rest (`encrypts :shopify_token, :refresh_token`).
@@ -88,6 +121,11 @@ handled the same way.
   duplicate shop.
 - Webhooks are verified before anything is parsed or stored, and the endpoint inherits
   from `ActionController::API` (no cookies, sessions or CSRF surface).
+- Shopper emails are customer personal data: encrypted at rest (deterministic, for
+  equality lookups), normalised before encryption, and deleted on `customers/redact`.
+- Rails host authorization stays on for every route except `/proxy/*`. Proxied requests
+  carry the shop's domain in `X-Forwarded-Host`, which would otherwise be rejected with a
+  403. Those requests are authenticated by the proxy signature instead.
 - Brakeman and bundler-audit run as part of the Rails toolchain.
 
 ## Local development
@@ -129,6 +167,19 @@ shopify app dev --store <your-store>.myshopify.com
 `SHOPIFY_API_SECRET`, `HOST`, `SCOPES` and `PORT`, and starts Rails using
 `shopify.web.toml`. Press `p` to open the app and install it on your store.
 
+To add the signup form, open the theme editor with the block pre-selected:
+
+```
+https://<your-store>.myshopify.com/admin/themes/current/editor?template=product&addAppBlockId=<client_id>/notify_me&target=mainSection
+```
+
+Development notes:
+
+- An app proxy's `prefix`/`subpath` apply to new installs. If the app was installed
+  before `[app_proxy]` existed, reinstall it.
+- Editing extension files while `shopify app dev` is running triggers "Updated dev
+  preview". After that, webhook deliveries can stop until `shopify app dev` is restarted.
+
 ## Tests
 
 ```sh
@@ -155,8 +206,22 @@ tokens. Current coverage:
   totals, duplicates, bad or tampered HMAC, throttled API then a successful retry,
   token refresh, unknown shop or topic, uninstall and compliance topics
 
-The safeguards in `VariantStock.observe!` were mutation-checked: removing the row
-lock, the stale-read guard, or the `<= 0` rule each makes a test fail.
+- `test/services/shopify_app_proxy_verifier_test.rb`: Shopify's published worked examples
+  (logged-in and anonymous), tampered shop or customer, wrong secret, replayed timestamp,
+  secret rotation
+- `test/models/subscription_test.rb`: emails encrypted at rest, normalised before
+  encryption, lookup by email, per-variant uniqueness, malformed emails
+- `test/controllers/proxy_subscriptions_controller_test.rb`: signup end to end (including
+  signup → inventory webhook → restock), idempotent repeats, re-arming, in-stock, unknown or
+  untracked variants, unsigned, forged or replayed requests, identity smuggled in the body,
+  honeypot, and both rate limits behind a modelled Shopify proxy and load balancer
+- `test/integration/host_authorization_test.rb`: Rails' real host-authorization middleware
+  with the `/proxy/*` exclusion. The test environment allows every host, so this is the
+  only thing that would catch a regression.
+
+The security-critical safeguards were mutation-checked: removing the row lock, the
+stale-read guard, the `<= 0` rule, the proxy timestamp check, the honeypot, signed-only
+identity params, or the shopper-IP rate-limit key each makes a test fail.
 
 Linting and security scans:
 
@@ -171,6 +236,11 @@ bin/brakeman
 app/controllers/authenticated_controller.rb  base class for admin requests (ID token auth)
 app/controllers/home_controller.rb           embedded landing page, GraphQL shop query
 app/controllers/webhooks_controller.rb       single webhook endpoint: verify, dedup, dispatch by topic
+app/controllers/proxy_subscriptions_controller.rb  storefront signups via the app proxy
+app/services/shopify_app_proxy_verifier.rb   app proxy signature + replay window
+app/services/subscribe_to_restock.rb         variant check, stock baseline, idempotent signup
+app/models/subscription.rb                   shopper waiting on a variant (encrypted email)
+extensions/restock-notify/                   theme app extension: block, JS, CSS, locales
 app/services/shopify_webhook_verifier.rb     HMAC-SHA256 check over the raw body
 app/services/webhooks/                       one handler per topic (inventory, uninstall, compliance)
 app/models/shop.rb                           installed shops + encrypted session storage
