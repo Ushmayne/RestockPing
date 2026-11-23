@@ -36,6 +36,10 @@ Rails.application.configure do
   # ActionMailer::Base.deliveries array.
   config.action_mailer.delivery_method = :test
 
+  # Jobs are collected in memory instead of going to Redis. Tests run them
+  # explicitly with perform_enqueued_jobs.
+  config.active_job.queue_adapter = :test
+
   # Set host to be used by links generated in mailer templates.
   config.action_mailer.default_url_options = { host: "example.com" }
 

@@ -5,6 +5,7 @@ class Subscription < ApplicationRecord
   STATUSES = %w[pending notified].freeze
 
   belongs_to :shop
+  has_many :notifications, dependent: :delete_all
 
   # Emails are customer personal data, so they're encrypted at rest. Deterministic
   # encryption means the same address always gives the same ciphertext, which keeps

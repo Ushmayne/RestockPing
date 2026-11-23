@@ -4,6 +4,9 @@ require "test_helper"
 class WebhooksControllerTest < ActionDispatch::IntegrationTest
   include ShopifyIdTokenHelper
   include ShopifyWebhookHelper
+  include ActiveJob::TestHelper
+  include ActionMailer::TestHelper
+  include RestockEmailHelper
 
   ITEM_ID = 808_950_810
   VARIANT = "gid://shopify/ProductVariant/4242"
@@ -44,6 +47,25 @@ class WebhooksControllerTest < ActionDispatch::IntegrationTest
     event = RestockEvent.sole
     assert_equal [ VARIANT, 0, 5 ], [ event.variant_gid, event.previous_quantity, event.new_quantity ]
     assert_equal 5, VariantStock.find_by!(variant_gid: VARIANT).quantity
+  end
+
+  test "end to end: restock webhook -> fan-out job -> email in the subscriber's inbox" do
+    baseline!(0)
+    @shop.subscriptions.create!(variant_gid: VARIANT, product_gid: PRODUCT, email: "ana@example.com")
+    stub_inventory_item(shop: @shop.shopify_domain, inventory_item_id: ITEM_ID,
+                        variants: [ { id: VARIANT, quantity: 5, product_id: PRODUCT } ])
+    stub_email_details(shop: @shop)
+
+    # The webhook only enqueues. Nothing is sent inside the request.
+    assert_no_emails { deliver(inventory_body) }
+    assert_response :ok
+    assert_enqueued_with(job: NotifySubscribersJob)
+
+    # Fan-out runs and enqueues the send. Then the send runs.
+    perform_enqueued_jobs(only: NotifySubscribersJob)
+    assert_emails(1) { perform_enqueued_jobs(only: SendRestockEmailJob) }
+    assert_equal [ "ana@example.com" ], ActionMailer::Base.deliveries.last.to
+    assert_equal "sent", Notification.sole.status
   end
 
   test "uses the API's total, not the payload's per-location number" do

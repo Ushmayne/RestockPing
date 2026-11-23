@@ -57,3 +57,7 @@ gem "shopify_app", "~> 23.0"
 # shopify_api 16.4 uses OpenStruct (JSON.parse object_class) without declaring or requiring
 # ostruct, and Ruby 3.4 no longer autoloads it. Bundler.require loads it for the gem.
 gem "ostruct"
+
+gem "sidekiq", "~> 8.1"
+
+gem "redis", "~> 5.4"

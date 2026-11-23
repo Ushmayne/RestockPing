@@ -137,3 +137,71 @@ module ShopifyWebhookHelper
       .to_return(status: status, headers: { "Content-Type" => "application/json" }, body: body.to_json)
   end
 end
+
+# Builds the state the restock email jobs start from, and stubs the Admin API
+# call NotifySubscribersJob makes.
+module RestockEmailHelper
+  VARIANT = "gid://shopify/ProductVariant/4242"
+  PRODUCT = "gid://shopify/Product/42"
+
+  # A restock that already happened: stock row at `quantity`, plus its event.
+  # Creating the event enqueues a NotifySubscribersJob (after commit).
+  def restock!(shop:, variant_gid: VARIANT, quantity: 5, **event_attributes)
+    VariantStock.find_or_initialize_by(shop: shop, variant_gid: variant_gid)
+                .update!(product_gid: PRODUCT, inventory_item_gid: "gid://shopify/InventoryItem/4242",
+                         quantity: quantity, observed_at: 1.minute.ago)
+    RestockEvent.create!(shop: shop, variant_gid: variant_gid, product_gid: PRODUCT,
+                         previous_quantity: 0, new_quantity: quantity, **event_attributes)
+  end
+
+  def subscribe!(shop:, email:, variant_gid: VARIANT, status: "pending")
+    shop.subscriptions.create!(variant_gid: variant_gid, product_gid: PRODUCT, email: email, status: status)
+  end
+
+  # A fanned-out restock with one pending email, ready for SendRestockEmailJob.
+  # in_stock: the variant's current quantity when the email job runs.
+  def pending_notification!(shop:, email: "ana@example.com", in_stock: 5)
+    event = restock!(shop: shop, quantity: in_stock, fanned_out_at: Time.current,
+                     shop_name: "Snow Co", shop_contact_email: "help@snow.example",
+                     product_title: "Liquid Snowboard", variant_title: "158cm",
+                     product_url: "https://snow.example/products/liquid?variant=4242",
+                     image_url: "https://cdn.shopify.com/liquid.jpg")
+    subscription = subscribe!(shop: shop, email: email, status: "notified")
+    Notification.create!(shop: shop, subscription: subscription, restock_event: event)
+  end
+
+  # The Admin API's answer to NotifySubscribersJob::QUERY.
+  def stub_email_details(shop:, variant_title: "158cm", variant_image: nil, exists: true, body: nil)
+    variant = {
+      title: variant_title,
+      image: variant_image && { url: variant_image },
+      product: {
+        title: "Liquid Snowboard", handle: "liquid",
+        featuredMedia: { preview: { image: { url: "https://cdn.shopify.com/featured.jpg" } } }
+      }
+    }
+    body ||= {
+      data: {
+        shop: { name: "Snow Co", contactEmail: "help@snow.example", primaryDomain: { url: "https://snow.example" } },
+        productVariant: exists ? variant : nil
+      }
+    }
+    stub_request(:post, "https://#{shop.shopify_domain}/admin/api/2026-10/graphql.json")
+      .with { |req| JSON.parse(req.body)["query"].include?("RestockPingEmailDetails") }
+      .to_return(status: 200, headers: { "Content-Type" => "application/json" }, body: body.to_json)
+  end
+end
+
+# A delivery method that raises, to simulate an SMTP server refusing or failing.
+class FailingDelivery
+  class << self
+    attr_accessor :error
+  end
+
+  def initialize(_settings); end
+
+  def deliver!(_mail)
+    raise self.class.error
+  end
+end
+ActionMailer::Base.add_delivery_method :failing, FailingDelivery

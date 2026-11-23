@@ -10,9 +10,24 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_22_000004) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_22_000006) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "notifications", force: :cascade do |t|
+    t.bigint "shop_id", null: false
+    t.bigint "subscription_id", null: false
+    t.bigint "restock_event_id", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "sent_at"
+    t.string "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["restock_event_id", "status"], name: "index_notifications_on_restock_event_id_and_status"
+    t.index ["shop_id"], name: "index_notifications_on_shop_id"
+    t.index ["status", "created_at"], name: "index_notifications_on_status_and_created_at"
+    t.index ["subscription_id", "restock_event_id"], name: "index_notifications_on_subscription_id_and_restock_event_id", unique: true
+  end
 
   create_table "restock_events", force: :cascade do |t|
     t.bigint "shop_id", null: false
@@ -22,6 +37,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_22_000004) do
     t.integer "new_quantity", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "shop_name"
+    t.string "shop_contact_email"
+    t.string "product_title"
+    t.string "variant_title"
+    t.string "product_url"
+    t.string "image_url"
+    t.datetime "fanned_out_at"
+    t.index ["created_at"], name: "index_restock_events_awaiting_fan_out", where: "(fanned_out_at IS NULL)"
     t.index ["shop_id", "variant_gid", "created_at"], name: "index_restock_events_on_shop_id_and_variant_gid_and_created_at"
     t.index ["shop_id"], name: "index_restock_events_on_shop_id"
   end
@@ -78,6 +101,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_22_000004) do
     t.index ["webhook_id"], name: "index_webhook_deliveries_on_webhook_id", unique: true
   end
 
+  add_foreign_key "notifications", "restock_events", on_delete: :cascade
+  add_foreign_key "notifications", "shops", on_delete: :cascade
+  add_foreign_key "notifications", "subscriptions", on_delete: :cascade
   add_foreign_key "restock_events", "shops", on_delete: :cascade
   add_foreign_key "subscriptions", "shops", on_delete: :cascade
   add_foreign_key "variant_stocks", "shops", on_delete: :cascade

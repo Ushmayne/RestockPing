@@ -35,8 +35,14 @@ Rails.application.configure do
   # Store uploaded files on the local file system (see config/storage.yml for options).
   config.active_storage.service = :local
 
-  # Don't care if the mailer can't send.
-  config.action_mailer.raise_delivery_errors = false
+  # Real SMTP to Mailpit (a local mail catcher, web inbox at http://localhost:8025),
+  # so development goes through the same delivery path, and the same errors, as
+  # production. Stop Mailpit to watch SendRestockEmailJob retry.
+  config.action_mailer.delivery_method = :smtp
+  config.action_mailer.smtp_settings = { address: "localhost", port: 1025, open_timeout: 5, read_timeout: 10 }
+  # Must be true: with false, a failed delivery returns normally and the job
+  # would mark the notification sent.
+  config.action_mailer.raise_delivery_errors = true
 
   # Make template changes take effect immediately.
   config.action_mailer.perform_caching = false

@@ -1,0 +1,9 @@
+# bundle exec sidekiq -C config/sidekiq.yml  (or bin/worker in development)
+#
+# concurrency = worker threads in one Sidekiq process. Each thread can hold a
+# database connection for the length of an SMTP conversation (SendRestockEmailJob
+# sends inside a row lock), so this must not exceed the DB pool
+# (max_connections in config/database.yml, RAILS_MAX_THREADS, default 5).
+:concurrency: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+:queues:
+  - default

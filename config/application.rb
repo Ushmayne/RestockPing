@@ -24,6 +24,10 @@ module RestockPing
     # Every other route keeps it.
     config.host_authorization = { exclude: ->(request) { request.path.start_with?("/proxy/") } }
 
+    # Background jobs run in Sidekiq, backed by Redis (REDIS_URL, default
+    # redis://localhost:6379/0). The test environment overrides this with :test.
+    config.active_job.queue_adapter = :sidekiq
+
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files

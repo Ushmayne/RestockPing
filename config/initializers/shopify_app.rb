@@ -48,7 +48,11 @@ Rails.application.config.after_initialize do
       api_secret_key: ShopifyApp.configuration.secret,
       old_api_secret_key: ShopifyApp.configuration.old_secret.presence,
       api_version: ShopifyApp.configuration.api_version,
-      host: ENV["HOST"],
+      # The app's public URL, which only the OAuth redirect flow uses. The CLI sets
+      # HOST for the web process, but not for Sidekiq or `rails runner`. Without a
+      # fallback, ShopifyAPI::Context.setup? raises (T.must(nil)) on every token
+      # refresh in a background job.
+      host: ENV.fetch("HOST", "https://localhost"),
       scope: ShopifyApp.configuration.scope,
       is_private: false,
       is_embedded: ShopifyApp.configuration.embedded_app,

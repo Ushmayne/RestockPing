@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Starts the Sidekiq worker for development.
+#
+# `shopify app dev` starts only the web process, and only that process gets
+# SHOPIFY_API_KEY / SHOPIFY_API_SECRET. The worker needs them too, to refresh
+# tokens and call the Admin API. Create .env once with `shopify app env pull`
+# (it's gitignored).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+else
+  echo "No .env found. Run: shopify app env pull" >&2
+  exit 1
+fi
+
+exec bundle exec sidekiq -C config/sidekiq.yml "$@"
