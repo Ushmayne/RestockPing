@@ -17,7 +17,7 @@ Built in phases. Each phase ships with tests.
 | 2 | `inventory_levels/update` webhook: HMAC verification, dedup, 0 → >0 restock detection | Done |
 | 3 | Theme app extension (signup form) + app proxy endpoint | Done |
 | 4 | Sidekiq jobs that send restock emails, with retries | Done |
-| 5 | Order webhooks to attribute conversions to alerts | Planned |
+| 5 | Order webhooks to attribute conversions to alerts | Done |
 | 6 | Admin analytics page | Planned |
 | 7 | Full test coverage, CI, deployment notes | Planned |
 
@@ -165,6 +165,37 @@ wasn't needed is harmless.
 **Rate limits** for storefront signups now live in Redis, shared by every process. If
 Redis is down, they fail open (short timeouts, logged), so signups keep working.
 
+## How conversions are attributed
+
+`orders/paid` (needs `read_orders`) credits an order to the restock emails that led to it
+(`AttributeOrder`). A **sent** notification gets the credit when:
+
+1. **Same shopper.** The order's `customer.id` matches a logged-in signup, or its email
+   matches a guest signup (normalised, matched as deterministic ciphertext).
+2. **Same variant.** One of the order's line items is the variant the email was about.
+3. **In the window.** The email went out at most **7 days** before the order was placed
+   (`processed_at`), and not after it. An order placed by bank transfer before the email
+   and paid after it doesn't count.
+
+If a shopper was emailed more than once for a variant, the most recent email gets the
+credit (last touch). Revenue is that variant's lines only: price × quantity minus its
+discount allocations, in the shop currency, as `BigDecimal`. An email converts at most
+once (unique `conversions.notification_id`, `INSERT … ON CONFLICT DO NOTHING`), so a
+repeated `orders/paid` or a later second order can't count it twice.
+
+`orders/cancelled` sets `cancelled_at` on that order's conversions. Test orders are
+recorded with `test_order`. Phase 6 reports `Conversion.counted` (not cancelled, not test).
+
+The payload has everything needed, so there's no API call. Matching runs in the same
+transaction as the webhook's dedup row.
+
+**Protected customer data.** Orders are protected customer data. The `Conversion` row
+stores no customer fields (no email, name or address). The link to the shopper goes through
+notification → subscription, so `customers/redact` erases the conversion along with the
+subscription. Shopify only delivers `orders/*` once protected customer data access is
+configured. Without Level 2 (email) access the order's email is redacted, and only
+logged-in shoppers (customer id) can be matched.
+
 ## Security notes
 
 - Access and refresh tokens are encrypted at rest (`encrypts :shopify_token, :refresh_token`).
@@ -240,6 +271,13 @@ To add the signup form, open the theme editor with the block pre-selected:
 https://<your-store>.myshopify.com/admin/themes/current/editor?template=product&addAppBlockId=<client_id>/notify_me&target=mainSection
 ```
 
+For conversion tracking, turn on protected customer data access first: Dev Dashboard →
+your app → Settings → Access requests → Protected customer data → Manage. Select
+customer data and the email field, give reasons, complete the data protection details,
+and save. Development stores need no review. Then restart `shopify app dev`, so the
+`read_orders` scope and the `orders/*` subscriptions are pushed, and open the app in the
+admin to approve the new scope.
+
 Development notes:
 
 - An app proxy's `prefix`/`subpath` apply to new installs. If the app was installed
@@ -301,6 +339,15 @@ tokens. Current coverage:
 - `test/mailers/restock_mailer_test.rb`: sender, reply-to, links, stable Message-ID, escaping
 - `test/models/restock_event_test.rb`: enqueue after commit, nothing on rollback
 
+- `test/services/attribute_order_test.rb`: match by email (any case) or customer id,
+  strangers, no identity, other shops, other variants, revenue (quantity, discounts, custom
+  lines), two variants in one order, both edges of the 7-day window, order placed before
+  the email, unsent emails, last touch, replays, second orders, test and cancelled orders,
+  no customer columns
+- `test/controllers/webhooks_controller_test.rb` also covers `orders/paid` (no API call,
+  retry dedup, bad HMAC), `orders/cancelled` (only that order), and `customers/redact`
+  erasing conversions
+
 The jobs tests use Active Job's test adapter, so the suite needs neither Redis nor a
 mail server.
 
@@ -308,7 +355,9 @@ The security-critical safeguards were mutation-checked: removing the row lock, t
 stale-read guard, the `<= 0` rule, the proxy timestamp check, the honeypot, signed-only
 identity params, or the shopper-IP rate-limit key each makes a test fail. So do the Phase 4
 ones: either `FOR UPDATE`, the pending check, the sold-out check, the exhaustion and 550
-handlers, the snapshot-once guard, and the sweeper's status and age filters.
+handlers, the snapshot-once guard, and the sweeper's status and age filters. And the
+Phase 5 ones: either edge of the window, shop scoping, the variant filter, either identity
+match, last touch, discounts, quantity, `ON CONFLICT`, and the cancel's order filter.
 
 Linting and security scans:
 
@@ -340,6 +389,8 @@ app/jobs/notify_subscribers_job.rb           fan-out: snapshot, claim subscriber
 app/jobs/send_restock_email_job.rb           locked, idempotent send with retry rules
 app/jobs/requeue_stalled_notifications_job.rb  re-enqueues lost jobs from the database
 app/mailers/restock_mailer.rb                the back-in-stock email
+app/services/attribute_order.rb              which restock emails a paid order is credited to
+app/models/conversion.rb                     a paid order credited to one email (no customer data)
 config/initializers/rate_limit.rb            Redis-backed rate-limit counters (fail open)
 bin/worker                                   Sidekiq for development, loads .env
 config/initializers/shopify_app.rb           auth strategy, API version, token expiry

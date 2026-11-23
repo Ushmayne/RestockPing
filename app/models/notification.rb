@@ -12,10 +12,12 @@ class Notification < ApplicationRecord
   belongs_to :shop
   belongs_to :subscription
   belongs_to :restock_event
+  has_one :conversion, dependent: :delete
 
   validates :status, inclusion: { in: STATUSES }
 
   scope :pending, -> { where(status: "pending") }
+  scope :sent, -> { where(status: "sent") }
 
   def pending?
     status == "pending"

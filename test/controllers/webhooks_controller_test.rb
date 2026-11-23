@@ -7,6 +7,7 @@ class WebhooksControllerTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
   include ActionMailer::TestHelper
   include RestockEmailHelper
+  include ShopifyOrderHelper
 
   ITEM_ID = 808_950_810
   VARIANT = "gid://shopify/ProductVariant/4242"
@@ -187,6 +188,77 @@ class WebhooksControllerTest < ActionDispatch::IntegrationTest
     deliver("{}", topic: "products/create")
 
     assert_response :ok
+  end
+
+  # --- conversions ---------------------------------------------------------
+
+  def sent_email!(email: "ana@example.com")
+    pending_notification!(shop: @shop, email: email).tap { |n| n.update!(status: "sent", sent_at: 1.hour.ago) }
+  end
+
+  def paid_order(**options)
+    order_payload(email: "ana@example.com", line_items: [ { variant_id: 4242, price: "80.00" } ], **options)
+  end
+
+  test "orders/paid from a shopper we emailed: one conversion, no API call" do
+    notification = sent_email!
+
+    deliver(paid_order.to_json, topic: "orders/paid")
+
+    assert_response :ok
+    assert_equal notification, Conversion.sole.notification
+    assert_equal BigDecimal("80"), Conversion.sole.revenue
+    assert_not_requested :post, graphql_url
+  end
+
+  test "orders/paid delivered twice (Shopify retry, same webhook id): one conversion" do
+    sent_email!
+    body = paid_order.to_json
+    webhook_id = SecureRandom.uuid
+
+    2.times { deliver(body, topic: "orders/paid", webhook_id: webhook_id) }
+
+    assert_response :ok
+    assert_equal 1, Conversion.count
+  end
+
+  test "orders/paid with a bad HMAC: 401, nothing recorded" do
+    sent_email!
+
+    deliver(paid_order.to_json, topic: "orders/paid", hmac: "bm90LXRoZS1yaWdodC1kaWdlc3Q=")
+
+    assert_response :unauthorized
+    assert_equal 0, Conversion.count
+  end
+
+  test "orders/cancelled marks that order's conversions cancelled, and only that order's" do
+    sent_email!(email: "ana@example.com")
+    sent_email!(email: "ben@example.com")
+    deliver(paid_order(id: 1).to_json, topic: "orders/paid")
+    deliver(paid_order(id: 2, email: "ben@example.com").to_json, topic: "orders/paid")
+
+    deliver({ id: 1, cancelled_at: Time.current.iso8601, cancel_reason: "customer" }.to_json, topic: "orders/cancelled")
+
+    assert_response :ok
+    assert Conversion.find_by!(order_id: 1).cancelled_at.present?
+    assert_nil Conversion.find_by!(order_id: 2).cancelled_at
+    assert_equal [ 2 ], Conversion.counted.pluck(:order_id)
+  end
+
+  test "orders/cancelled for an order we never attributed: 200, nothing to do" do
+    deliver({ id: 12_345, cancelled_at: Time.current.iso8601 }.to_json, topic: "orders/cancelled")
+
+    assert_response :ok
+  end
+
+  test "customers/redact also erases the shopper's conversions (through their subscription)" do
+    sent_email!
+    deliver(paid_order.to_json, topic: "orders/paid")
+
+    deliver({ shop_domain: @shop.shopify_domain, customer: { email: "ana@example.com" } }.to_json,
+            topic: "customers/redact")
+
+    assert_equal 0, Conversion.count
   end
 
   # --- lifecycle and compliance --------------------------------------------

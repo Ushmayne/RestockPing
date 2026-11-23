@@ -8,6 +8,8 @@
 class WebhooksController < ActionController::API
   HANDLERS = {
     "inventory_levels/update" => Webhooks::InventoryLevelsUpdate,
+    "orders/paid" => Webhooks::OrdersPaid,
+    "orders/cancelled" => Webhooks::OrdersCancelled,
     "app/uninstalled" => Webhooks::AppUninstalled,
     "customers/data_request" => Webhooks::Compliance,
     "customers/redact" => Webhooks::Compliance,

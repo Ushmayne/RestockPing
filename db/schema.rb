@@ -10,9 +10,25 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_22_000006) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_23_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "conversions", force: :cascade do |t|
+    t.bigint "shop_id", null: false
+    t.bigint "notification_id", null: false
+    t.bigint "order_id", null: false
+    t.string "order_name"
+    t.decimal "revenue", precision: 15, scale: 4, null: false
+    t.string "currency", null: false
+    t.boolean "test_order", default: false, null: false
+    t.datetime "ordered_at", null: false
+    t.datetime "cancelled_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["notification_id"], name: "index_conversions_on_notification_id", unique: true
+    t.index ["shop_id", "order_id"], name: "index_conversions_on_shop_id_and_order_id"
+  end
 
   create_table "notifications", force: :cascade do |t|
     t.bigint "shop_id", null: false
@@ -101,6 +117,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_22_000006) do
     t.index ["webhook_id"], name: "index_webhook_deliveries_on_webhook_id", unique: true
   end
 
+  add_foreign_key "conversions", "notifications", on_delete: :cascade
+  add_foreign_key "conversions", "shops", on_delete: :cascade
   add_foreign_key "notifications", "restock_events", on_delete: :cascade
   add_foreign_key "notifications", "shops", on_delete: :cascade
   add_foreign_key "notifications", "subscriptions", on_delete: :cascade

@@ -205,3 +205,40 @@ class FailingDelivery
   end
 end
 ActionMailer::Base.add_delivery_method :failing, FailingDelivery
+
+# orders/paid and orders/cancelled payloads, shaped like Shopify's (REST JSON,
+# money as strings, ids as integers).
+module ShopifyOrderHelper
+  # line_items: [{ variant_id:, price:, quantity:, discounts: [amounts] }]
+  def order_payload(id: 820_982_911_946_154_508, customer_id: nil, email: nil, line_items: [],
+                    processed_at: Time.current, test: false, cancelled_at: nil, currency: "USD")
+    {
+      id: id,
+      admin_graphql_api_id: "gid://shopify/Order/#{id}",
+      name: "#1001",
+      email: email,
+      contact_email: email,
+      currency: currency,
+      financial_status: "paid",
+      test: test,
+      processed_at: processed_at.iso8601,
+      created_at: processed_at.iso8601,
+      cancelled_at: cancelled_at&.iso8601,
+      customer: customer_id && { id: customer_id, email: email },
+      line_items: line_items.map do |item|
+        price = item.fetch(:price)
+        {
+          id: SecureRandom.random_number(10**12),
+          variant_id: item[:variant_id],
+          quantity: item.fetch(:quantity, 1),
+          price: price,
+          price_set: { shop_money: { amount: price, currency_code: currency },
+                       presentment_money: { amount: price, currency_code: currency } },
+          discount_allocations: Array(item[:discounts]).map do |amount|
+            { amount: amount, amount_set: { shop_money: { amount: amount, currency_code: currency } } }
+          end
+        }
+      end
+    }.deep_stringify_keys
+  end
+end

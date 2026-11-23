@@ -9,7 +9,7 @@ ShopifyApp.configure do |config|
   # shopify.app.toml ([access_scopes]) is the source of truth: Shopify's managed install
   # grants exactly those. This value is what the gem compares a stored token's scopes
   # against, so a scope added in the toml forces a fresh token exchange.
-  config.scope = ENV.fetch("SCOPES", "read_products,read_inventory,write_app_proxy")
+  config.scope = ENV.fetch("SCOPES", "read_products,read_inventory,write_app_proxy,read_orders")
   config.reauth_on_access_scope_changes = true
 
   # Embedded in the Shopify admin, authenticated with ID tokens + token exchange

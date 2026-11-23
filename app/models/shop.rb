@@ -17,6 +17,7 @@ class Shop < ActiveRecord::Base
   has_many :restock_events, dependent: :delete_all
   has_many :subscriptions, dependent: :delete_all
   has_many :notifications, dependent: :delete_all
+  has_many :conversions, dependent: :delete_all
 
   def api_version
     ShopifyApp.configuration.api_version
