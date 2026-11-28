@@ -50,7 +50,7 @@ end
 
 group :test do
   # Blocks real HTTP in tests; every Shopify API call is stubbed explicitly
-  gem "webmock", "~> 3.37"
+  gem "webmock", "~> 3.41"
 end
 
 gem "shopify_app", "~> 23.0"
