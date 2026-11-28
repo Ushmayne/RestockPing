@@ -60,4 +60,4 @@ gem "ostruct"
 
 gem "sidekiq", "~> 8.1"
 
-gem "redis", "~> 5.4"
+gem "redis", "~> 6.1"
